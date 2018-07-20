@@ -19,15 +19,19 @@ library(tictoc)
 
 ```{r}
 gdsc = readRDS('/home/wangmk/UM/Research/BDSI/Data_Results/gdsc_screened.rds')
-cnv_full = readRDS('/home/wangmk/UM/Research/BDSI/Data_Results/cnNEW.rds')
+cnv = readRDS('/home/wangmk/UM/Research/BDSI/Data_Results/cnNEW.rds')
 ```
 
 ```{r}
-names(cnv_full) <- make.names(names(cnv_full))
+names(cnv) <- make.names(names(cnv))
 ```
 
+
+
+
+
 ```{r}
-get.t <- function(dat, labs){
+get.t.1 <- function(dat, labs){
     # split the data into effective and ineffective
     effect <- dat[labs]
     ineffect <- dat[!labs]
@@ -47,94 +51,206 @@ get.t <- function(dat, labs){
     # calculate the sd
     s <- sqrt((v.effect/n.effect) + (v.ineffect/n.ineffect))
     
+    #calculate degrees of freedom
+    df = ((v.effect/n.effect+v.ineffect/n.ineffect)^2)/(v.effect^2/(n.effect^2 * (n.effect-1))+v.ineffect^2/(n.ineffect^2 * (n.ineffect-1)))
+    
     # calculate the test statistic
-    T <- (effect.bar - ineffect.bar)/s
-    
-    # calculate the degrees of freedom
-    # df = ((v.effect/n.effect+v.ineffect/n.ineffect)^2)/(v.effect^2/(n.effect^2 * (n.effect-1))+v.ineffect^2/(n.ineffect^2 * (n.ineffect-1)))
-    
-    # compare our t value and the threshold, decide whether we should keep it or not
-    return(abs(T))
+    T.value <- (effect.bar - ineffect.bar)/s
+    return(abs(T.value) >qt(0.95,df))
 }
 ```
 
 ```{r}
-outcome <- data.frame(Gene = colnames(cnv_full))
+get.t.2 <- function(dat, labs){
+    # split the data into effective and ineffective
+    effect <- dat[labs]
+    ineffect <- dat[!labs]
+    
+    # calculate the two sample means
+    effect.bar <- mean(effect)
+    ineffect.bar <- mean(ineffect)
+    
+    # calculate the two sample variances
+    v.effect <- var(effect)
+    v.ineffect <- var(ineffect)
+    
+    # calculate the sample sizes
+    n.effect <- length(effect)
+    n.ineffect <- length(ineffect)
+    
+    # calculate the sd
+    s <- sqrt((v.effect/n.effect) + (v.ineffect/n.ineffect))
+    
+    #calculate degrees of freedom
+    #df = ((v.effect/n.effect+v.ineffect/n.ineffect)^2)/(v.effect^2/(n.effect^2 * (n.effect-1))+v.ineffect^2/(n.ineffect^2 * (n.ineffect-1)))
+    
+    # calculate the test statistic
+    T.value <- (effect.bar - ineffect.bar)/s
+    return(abs(T.value) )
+}
+```
+
+
+
+```{r}
+traindirect = '/home/wangmk/UM/Research/BDSI/train_drug/'
 ```
 
 ```{r}
+n_features = c(5,10,20,30,50,100,200,500,1000,2000)
+```
+
+
+```{r}
+code = "1062"
+
+
+accuracy = rep(0,10)
+names(accuracy) = c('5','10','20','30','50','100','200','500','1000','2000')
+gdsc_sub <- subset(gdsc, DRUG_ID_lib == code)[,c("CL","EFFECT")]
+cnv_sub <- cnv[as.character(gdsc_sub$CL),]
+
+filename = paste(c('train_',code,'.rds'),collapse='')
+fullname = paste(c(traindirect,filename),collapse='')
+cl_train = paste(readRDS(fullname))
+cl_test = setdiff(rownames(cnv_sub),cl_train)
+
+cnv_sub_train = cnv_sub[cl_train,]
+cnv_sub_test = cnv_sub[cl_test,]
+
+gdsc_sub_train = tbl_df(gdsc_sub) %>% filter(CL %in% cl_train)
+gdsc_sub_test = tbl_df(gdsc_sub) %>% filter(CL %in% cl_test)
+```
+
+```{r}
+#outcome <- data.frame(Gene = colnames(cnv))
+```
+
+```{r}
+#outcome$T <- apply(cnv_sub_train, 2, get.t.1, gdsc_sub_train$EFFECT)
+#subset_id = outcome %>% filter(T==TRUE) %>% select(Gene)
+#subset_id = as.character(unname(t(subset_id[,1])))
+```
+
+```{r}
+#sigdir = '/home/wangmk/UM/Research/BDSI/Data_Results/Significant_CNV/'
+#filename = paste(c('significant_',code,'.rds'),collapse='')
+#fullname = paste(c(sigdir,filename),collapse='')
+#saveRDS(subset_id,fullname)
+```
+
+```{r}
+sigdir = '/home/wangmk/UM/Research/BDSI/Data_Results/Significant_CNV/'
+filename = paste(c('significant_',code,'.rds'),collapse='')
+fullname = paste(c(sigdir,filename),collapse='')
+subset_id = readRDS(fullname)
+```
+
+```{r}
+cnv_sub_train = cnv_sub_train[,subset_id]
+cnv_sub_test = cnv_sub_test[,subset_id]
+```
+
+```{r}
+outcome <- data.frame(Gene = colnames(cnv_sub_train))
+```
+
+
+
+```{r}
 tic()
-codes <- c("1006","1007","1008","1011","1014","1016","1019","1026","1032","1054","1060","1062")
-resultmat = matrix(nrow=12,ncol=6)
-rownames(resultmat) = c("1006","1007","1008","1011","1014","1016","1019","1026","1032","1054","1060","1062")
-colnames(resultmat) = c("50","100","200","500","1000","1200")
-train_1006_id = readRDS('/home/wangmk/UM/Research/BDSI/train_drug/train_1006.rds')
-for (code in codes){
-  print(code)
-  gdsc_sub <- subset(gdsc, DRUG_ID_lib == code)[,c("CL","EFFECT")]
-  cnv_sub <- cnv[as.character(gdsc_sub$CL),]
-  cnv_sub_full <- cbind(cnv_sub, gdsc_sub['EFFECT'])
-  # outcome$T <- apply(cnv_sub,2,get.t,gdsc_sub$EFFECT)
-  n_features = c(50,100,200,500,1000,1200)
-  train_accuracy = c()
-  test_accuracy = c()
-  for (n_feature in n_features){
+for (j in 1:10){
+  print(j)
+  set.seed(j)
+  train_id = sample(1:nrow(gdsc_sub_train),0.9*nrow(gdsc_sub_train))
+  #cnv_sub_traintrain = cnv_sub_train[train_id,]
+  #gdsc_sub_traintrain = gdsc_sub_train[train_id,]
+  #cnv_sub_traintest = cnv_sub_train[-train_id,]
+  #gdsc_sub_traintest = gdsc_sub_train[-train_id,]
+  outcome$T <- apply(cnv_sub_train[train_id,], 2, get.t.2, gdsc_sub_train[train_id,'EFFECT'][[1]])
+  for(n_feature in n_features){
     print(n_feature)
-    train_error = c()
-    test_error = c()
-    for (j in 1:5){  
-      set.seed(j)
-      train_id=sample(1:nrow(cnv_sub_full),0.7*nrow(cnv_sub_full))
-      train_cnv = cnv_sub_full[train_id,]
-      test_cnv = cnv_sub_full[-train_id,]
-      outcome$T <- apply(train_cnv[,-ncol(train_cnv)], 2, get.t, train_cnv$EFFECT)
-      subset_id = outcome %>% top_n(n_feature,T) %>% select(Gene)
-      subset_id = unname(t(subset_id[,1]))
-      train_cnv_reduced = cbind(train_cnv[,subset_id],train_cnv['EFFECT'])
-      test_cnv_reduced = cbind(test_cnv[,subset_id],test_cnv['EFFECT'])
-      train_cnv_reduced$EFFECT <- as.factor(train_cnv_reduced$EFFECT)
-      test_cnv_reduced$EFFECT <- as.factor(test_cnv_reduced$EFFECT)
-      myboost = ada(EFFECT~.,data=train_cnv_reduced,iter=10)
-      #train_pred = predict(myforest,train_cnv)
-      test_pred = predict(myboost,test_cnv_reduced)
-      #train_error[j] = mean(train_pred!=train_cnv[['EFFECT']])
-      test_error[j] = mean(test_pred!=test_cnv_reduced[['EFFECT']])
-  }
-  resultmat[code,toString(n_feature)] = 1-mean(test_error)
+    subset_id = outcome %>% top_n(n_feature,T) %>% select(Gene)
+    subset_id = unname(t(subset_id[,1]))
+    cnv_sub_traintrain_full = cbind(cnv_sub_train[train_id,subset_id],gdsc_sub_train[train_id,'EFFECT'])
+    cnv_sub_traintrain_full$EFFECT = as.factor(cnv_sub_traintrain_full$EFFECT)
+    cnv_sub_traintest_full = cbind(cnv_sub_train[-train_id,subset_id],gdsc_sub_train[-train_id,'EFFECT'])
+    cnv_sub_traintest_full$EFFECT = as.factor(cnv_sub_traintest_full$EFFECT)
+    myboost = ada(EFFECT~.,data=cnv_sub_traintrain_full,iter=5)
+    test_pred = predict(myboost,cnv_sub_traintest_full)
+    accuracy[toString(n_feature)] = accuracy[toString(n_feature)]+mean(test_pred==gdsc_sub_train[-train_id,'EFFECT'][[1]])
   }
 }
 toc()
 ```
 
 ```{r}
-library(ggplot2)
-library(reshape2)
+accuracy/10
+which.max(accuracy)
 ```
 
 ```{r}
-resultmat = cbind(rownames(resultmat),resultmat)
-resultmat = as.data.frame(resultmat)
+outcome$T <- apply(cnv_sub_train, 2, get.t.2, gdsc_sub_train$EFFECT)
+subset_id = outcome %>% top_n(30,T) %>% select(Gene)
+subset_id = as.character(unname(t(subset_id[,1])))
 ```
 
 ```{r}
-colnames(resultmat)[1]='Drug'
-```
-```{r}
-resultmat$Drug = as.numeric(resultmat$Drug)
+cnv_sub_train_reduced = cbind(cnv_sub_train[,subset_id],gdsc_sub_train['EFFECT'])
+cnv_sub_test_reduced = cbind(cnv_sub_test[,subset_id],gdsc_sub_test['EFFECT'])
 ```
 
 ```{r}
-resultmat = as.data.frame(resultmat)
-resultmat_long = melt(resultmat,id="Drug")
-resultmat_long$Drug = as.numeric(resultmat_long$Drug)
-colnames(resultmat_long) = c("Drug","Num_Features","Accuracy")
-resultmat_long$Accuracy = as.numeric(resultmat_long$Accuracy)
-```
-```{r}
-library(reshape2)
+cnv_sub_train_reduced$EFFECT = as.factor(cnv_sub_train_reduced$EFFECT)
+cnv_sub_test_reduced$EFFECT = as.factor(cnv_sub_test_reduced$EFFECT)
 ```
 
 ```{r}
-ggplot(resultmat_long,aes(x=Drug,y=Accuracy,colour=Num_Features))+geom_line()+geom_point()+theme(text=element_text(size=14))+
-  scale_x_continuous(breaks=1:12,labels=c("1006","1007","1008","1011","1014","1016","1019","1026","1032","1054","1060","1062"))+ggtitle("Test Accuracy of Adaboost")
+n_iters = c(5,10,15,20,25,30)
+accuracy = rep(0,6)
+names(accuracy) = c('5','10','15','20','25','30')
+for (j in 1:10){
+  print(j)
+  set.seed(j)
+  train_id = sample(1:nrow(gdsc_sub_train),0.9*nrow(gdsc_sub_train))
+  for (n_iter in n_iters){
+    print(n_iter)
+    myboost = ada(EFFECT~.,data=cnv_sub_train_reduced[train_id,],iter=n_iter)
+    test_pred = predict(myboost,cnv_sub_train_reduced[-train_id,])
+    accuracy[toString(n_iter)] = accuracy[toString(n_iter)] + mean(test_pred==cnv_sub_train_reduced[-train_id,'EFFECT'][[1]])
+  }
+}
+```
+
+```{r}
+accuracy/10
+which.max(accuracy)
+```
+
+
+```{r}
+myboost = ada(EFFECT~.,data=cnv_sub_train_reduced,iter=20)
+```
+
+```{r}
+test_pred = predict(myboost,cnv_sub_test_reduced)
+test_pred = as.data.frame(test_pred)
+```
+
+```{r}
+comp = cbind(test_pred,cnv_sub_test_reduced['EFFECT'])
+```
+
+```{r}
+sum(comp$test_pred==comp$EFFECT)/nrow(comp)
+```
+
+```{r}
+outdir = '/home/wangmk/UM/Research/BDSI/Data_Results/Boost/'
+```
+
+```{r}
+fname = paste(c("CNV_Boost_",code,'.rds'),collapse='')
+fullname = paste(c(outdir,fname),collapse='')
+saveRDS(comp,fullname)
 ```

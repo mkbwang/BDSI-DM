@@ -94,7 +94,7 @@ n_features = c(5,10,20,30,50,100,200,500,1000,2000)
 
 
 ```{r}
-code = "1007"
+code = "1062"
 
 
 accuracy = rep(0,10)
@@ -183,7 +183,7 @@ which.max(accuracy)
 
 ```{r}
 outcome$T <- apply(gene_sub_train, 2, get.t.2, gdsc_sub_train$EFFECT)
-subset_id = outcome %>% top_n(500,T) %>% select(Gene)
+subset_id = outcome %>% top_n(1000,T) %>% select(Gene)
 subset_id = as.character(unname(t(subset_id[,1])))
 ```
 
@@ -207,9 +207,9 @@ for (j in 1:10){
   train_id = sample(1:nrow(gdsc_sub_train),0.9*nrow(gdsc_sub_train))
   for (n_iter in n_iters){
     print(n_iter)
-    myboost = ada(EFFECT~.,data=gene_sub_train_reduced[train_id,])
-    test_pred = predict(myboost,gene_sub_test_reduced)
-    accuracy[toString(n_iter)] = accuracy[toString(n_iter)] + mean(test_pred==gene_sub_test_reduced[['EFFECT']])
+    myboost = ada(EFFECT~.,data=gene_sub_train_reduced[train_id,],iter=n_iter)
+    test_pred = predict(myboost,gene_sub_train_reduced[-train_id,])
+    accuracy[toString(n_iter)] = accuracy[toString(n_iter)] + mean(test_pred==gene_sub_train_reduced[-train_id,'EFFECT'][[1]])
   }
 }
 ```
@@ -221,7 +221,7 @@ which.max(accuracy)
 
 
 ```{r}
-myboost = ada(EFFECT~.,data=gene_sub_train_reduced,iter=15)
+myboost = ada(EFFECT~.,data=gene_sub_train_reduced,iter=50)
 ```
 
 ```{r}
