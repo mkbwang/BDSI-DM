@@ -1,0 +1,408 @@
+---
+title: "070218 Research Work"
+author: "Hanna Grossman"
+date: "7/2/2018"
+output: html_document
+---
+#finding PCA  - mukai's code  
+```{r}
+library(pls)
+library(ggplot2)
+library(dplyr)
+expr.dat = readRDS("/Users/hannagrossman/Desktop/BDSI Research/expression.rds")
+screen.dat = readRDS("/Users/hannagrossman/Desktop/BDSI Research/screening.rds")
+
+pr.out <- prcomp(expr.dat)
+names(pr.out)
+pr.var = pr.out$sdev^2
+pr.var[1:5]
+pve = pr.var/sum(pr.var)
+pve[1:5]
+sum(pve[1:5])
+pr_scale.out <- prcomp(expr.dat, scale=TRUE)
+pr_scale.var = pr_scale.out$sdev^2
+pr_scale.var[1:5]
+pve_scale= pr_scale.var/sum(pr_scale.var)
+pve_scale[1:5]
+sum(pve_scale[1:10])
+```
+
+#choosing what drugs to use 
+```{r}
+head(screen.dat)
+classes.1014 <- subset(screen.dat, DRUG_ID_lib == "1014")[,c("CL", "EFFECT")]
+#246 observations 
+head(classes.1014)
+filter(classes.1014, EFFECT == TRUE) %>% nrow()
+135/246
+
+drug <- screen.dat$DRUG_ID_lib
+unique(drug) 
+#59 drugs 
+
+#vector of all drug numbers 
+a <- c(1001, 1003, 1004, 1006, 1010, 1011, 1012, 1016, 1017, 1018, 1020, 1022, 1023, 1024, 1025, 1028, 1031, 1032, 1033, 1042, 1053, 1057, 1058, 1059, 1149, 1007, 1014, 1039, 1049, 1061, 1062, 1066, 1067, 1052, 1129, 1038, 1054, 1060, 1009, 1043, 1037, 1013, 1026, 1029, 1030, 1036, 1047, 1050, 1069, 1008, 1072, 1015, 1019, 1021, 1046, 1170, 1133, 1175, 1005)
+
+a[1]
+
+for(i in a[1]:a[59]){
+  x <- subset(screen.dat, DRUG_ID_lib == "i")["EFFECT"]
+  print(nrow(x)) 
+  print(filter(x, EFFECT == TRUE) %>% nrow())
+}
+
+screen.dat %>% group_by(DRUG_ID_lib, EFFECT) %>% summarise(count=n())
+```
+
+
+#seeing if classes.1014 match expr.1014 so we can then cbind them
+```{r}
+head(classes.1014)
+expr.1014[1:6,1:6]
+
+b <- rownames(expr.1014)
+c <- classes.1014[,1]
+
+d <- cbind(b,c)
+d$CL <- as.numeric(d$CL)
+d$b <- as.character(d$b)
+d$b <- as.numeric(d$b)
+d$e <- d$CL - d$b
+```
+
+#subsetting and cbinding
+```{r}
+classes.1014 <- subset(screen.dat, DRUG_ID_lib == "1014")[,c("CL","EFFECT")]
+expr.1014 <- expr.dat[as.character(classes.1014$CL),]
+head(classes.1014)
+expr.1014[1:6,1:6]
+exprnew <- cbind(classes.1014, expr.1014)
+exprnew[1:6,1:6]
+sum(is.na(exprnew))
+dim(exprnew)
+dim(expr.dat)
+```
+
+#PCA before kNN for loop below 
+```{r}
+#read in screen and expression data
+
+#subset to drug 1014
+classes.1014 <- subset(screen.dat, DRUG_ID_lib == "1014")[,c("CL", "EFFECT")]
+expr.1014 <- expr.dat[as.character(classes.1014$CL),]
+dim(expr.1014)
+expr.1014[1:10,1:10]
+
+#center the expression data by column means
+center.expr <- scale(expr.1014)
+
+#now do PCA - here we choose 3 components but we probably wann test 1-100 to see what is best - do loop 10 times (10 diff train and test sets)
+pca <- svd(center.expr, nu=10, nv = 0)
+
+pc.scores <- as.data.frame(diag(pca$d) %*% pca$u)
+pc.scores <- cbind(classes.1014, pc.scores)
+dim(pc.scores)
+#head(pc.scores)
+pc.scores[1:10,1:10]
+```
+#?????
+#work to find best PCA value before knn and k loop 
+```{r}
+expr.dat = readRDS("/Users/hannagrossman/Desktop/BDSI Research/expression.rds")
+screen.dat = readRDS("/Users/hannagrossman/Desktop/BDSI Research/screening.rds")
+classes.1014 <- subset(screen.dat, DRUG_ID_lib == "1014")[,c("CL","EFFECT")]
+expr.1014 <- expr.dat[as.character(classes.1014$CL),]
+exprnew <- cbind(classes.1014, expr.1014)
+
+x=exprnew[,3:17737]
+y=exprnew[,2]
+  
+M <- 1:5
+n <- nrow(x)
+Q <- 1:5
+
+#cv.error <- vector(mode = "numeric", length=10)
+
+#best.k <- vector(mode="numeric", length=10)
+
+#for(i in 1:10){
+  
+  train.ix <- sample(1:n, (19/20)*n)
+  xtrain = x[train.ix,]
+  ytrain = y[train.ix]
+  xtest = x[-train.ix,]
+  ytest = y[-train.ix]
+  
+  m.error <- matrix(, nrow=5, ncol=5) 
+  
+  for(m in M){
+    
+    #inside.error <- vector(mode="numeric", length= 10)
+    
+     for (q in Q){ 
+       inside.error <- vector(mode="numeric", length= 10)
+        for(j in 1:10){
+          n2 <- nrow(xtrain)
+          train2.ix <- sample(1:n2, (19/20)*n2)
+          xtrain2 = xtrain[train2.ix,]
+          ytrain2 = ytrain[train2.ix]
+          xvalidate = xtrain[-train2.ix,]
+          yvalidate = ytrain[-train2.ix]
+      
+      #pca on train 2; select q top components and create new data.frame 
+      #then also create a new test data.frame w same linear combos as train one
+      #use these new test and train data.frames to find best k below 
+      #center data
+          center.xtrain2 <- scale(xtrain2)
+          center.xvalidate <- scale(xvalidate)
+      #do prcomp to get rotation matrix on train dataset
+          pca <- prcomp(center.xtrain2, center = TRUE)
+          rotation <- as.data.frame(pca$rotation)[,c(1:q)]
+          pca_xtrain2 <- as.matrix(center.xtrain2) %*% as.matrix(rotation)
+          pca_xvalidate <- as.matrix(center.xvalidate) %*% as.matrix(rotation)
+    
+          fit <- knn(train = pca_xtrain2, test = pca_xvalidate, cl=ytrain2, k=m)
+          inside.error[j]<- mean(fit != yvalidate)
+        }
+       m.error[m,q]=mean(inside.error)
+       #m.error <- append(m.error, mean(inside.error))
+     }
+  }
+#   
+#   idx <- which.min(m.error)
+#   best.k[i] <- M[idx]
+#   
+#   fit.train <- knn(train = xtrain, test = xtest, cl = ytrain, k = M[idx])
+#   cv.error[i] <- mean(fit.train != ytest)
+# }
+# 
+# mean(cv.error)
+# best.k
+#       
+    
+
+```
+
+#for loop within a for loop for knn - choosing k and then performing knn - need to first make p smaller before performing knn 
+```{r}
+library(class)
+
+x=pc.scores[,3:12]
+y=pc.scores[,2]
+  
+M <- 1:100
+n <- nrow(x)
+
+cv.error <- vector(mode = "numeric", length=10)
+
+best.k <- vector(mode="numeric", length=10)
+
+for(i in 1:10){
+  
+  train.ix <- sample(1:n, (19/20)*n)
+  xtrain = x[train.ix,]
+  ytrain = y[train.ix]
+  xtest = x[-train.ix,]
+  ytest = y[-train.ix]
+  
+  m.error <- vector(mode = "numeric")
+  
+  for(m in M){
+    
+    inside.error <- vector(mode="numeric", length= 10)
+    
+    for(j in 1:10){
+      n2 <- nrow(xtrain)
+      train2.ix <- sample(1:n2, (19/20)*n2)
+      xtrain2 = xtrain[train2.ix,]
+      ytrain2 = ytrain[train2.ix]
+      xvalidate = xtrain[-train2.ix,]
+      yvalidate = ytrain[-train2.ix]
+      
+      fit <- knn(train = xtrain2, test = xvalidate, cl=ytrain2, k=m)
+      inside.error[j]<- mean(fit != yvalidate)
+    }
+    
+    m.error <- append(m.error, mean(inside.error))
+  }
+  
+  idx <- which.min(m.error)
+  best.k[i] <- M[idx]
+  
+  fit.train <- knn(train = xtrain, test = xtest, cl = ytrain, k = M[idx])
+  cv.error[i] <- mean(fit.train != ytest)
+}
+
+mean(cv.error)
+best.k
+
+#1-cv.error
+  
+
+#for PCA = 10:
+  #0.1461538
+  #8 27 42 23 16  5 11 15  6 26
+
+#for PCA =25:
+  #0.1538462
+  #8  1  1  3  8  3  6 10  3  5
+
+#for PCA = 50: 
+  #0.1923077
+  #3 3 3 2 1 2 1 3 1 3
+
+#for PCA = 100:
+  #0.3538462
+  #3  1  2 11  3  2  2  2  1  1
+```
+
+#redo to get best k value and then find best knn
+```{r}
+#inner part of loop above? 
+
+
+```
+
+#PCA initial analysis  
+```{r}
+#read in screen and expression data
+
+#subset to drug 1014
+classes.1014 <- subset(screen.dat, DRUG_ID_lib == "1014")[,c("CL", "EFFECT")]
+expr.1014 <- expr.dat[as.character(classes.1014$CL),]
+dim(expr.1014)
+
+#center the expression data by column means
+center.expr <- scale(expr.1014)
+
+#now do PCA - here we choose 3 components but we probably wann test 1-100 to see what is best - do loop 10 times (10 diff train and test sets)
+pca <- svd(center.expr, nu=3, nv = 0)
+
+pc.scores <- as.data.frame(diag(pca$d) %*% pca$u)
+pc.scores <- cbind(classes.1014, pc.scores)
+dim(pc.scores)
+head(pc.scores)
+```
+
+#plotting PCA 
+```{r}
+library(ggplot2)
+ggplot(data=pc.scores)+ geom_point(aes(x=V1, y=V2, color = EFFECT)) + labs(x="PC1", y="PC2")
+
+#can do this for v1&v3, v2&v3 
+#here we see that a large source of the variation in the data is related to the effectiveness of drug 1014 (bc we see a separation between the two groups )
+
+```
+
+#PCR
+```{r}
+#find the first k principal components of the features & use those principal components as predictors and regress the response onto them 
+
+library("pls")
+
+#split data into train and test sets 
+n <- dim(center.expr)[1]
+train.index <- sample(1:n, n/2)
+
+#training set
+x.train <- center.expr[train.index,]
+y.train <- classes.1014[train.index,]
+train.dat <- data.frame(class = y.train$EFFECT, x.train)
+
+#test set
+x.test <- center.expr[-train.index,]
+y.test <- classes.1014[-train.index,]
+test.dat <- data.frame(class = y.test$EFFECT, x.test)
+dim(x.train)
+dim(y.train)
+
+#use a subset of the data for this example (is this necessary? does the pcr test not do this already?)
+train.dat<- train.dat[,1:10000]
+test.dat <- test.dat[,1:10000]
+train.dat[1:6,1:6]
+
+#do PCR for the training data
+#train.dat <- as.data.frame(train.dat)
+pcr.fit <- pcr(class~., data=train.dat, scale = TRUE, ncomp =10)
+
+#now use that fit to get predictions for the testing data
+pcr.pred <- predict(pcr.fit, test.dat, ncomp = 10)
+preds <- ifelse(pcr.pred >= 0.5, 1, 0)
+mean(preds == y.test$EFFECT)
+head(preds)
+
+```
+
+#PCR Loop attempt 
+```{r}
+expr.dat[1:6,1:6]
+expr.dat = readRDS("/Users/hannagrossman/Desktop/BDSI Research/expression.rds")
+screen.dat = readRDS("/Users/hannagrossman/Desktop/BDSI Research/screening.rds")
+
+classes.1014 <- subset(screen.dat, DRUG_ID_lib == "1014")[,c("CL", "EFFECT")]
+expr.1014 <- expr.dat[as.character(classes.1014$CL),]
+center.expr <- scale(expr.1014)
+
+  #should be 1:100 below
+M <- 1:10
+n <- nrow(center.expr)
+
+cv.error <- vector(mode = "numeric", length=10)
+
+best.k <- vector(mode="numeric", length=10)
+
+for(i in 1:10){
+  
+  train.index <- sample(1:n, (19/20)*n)  #better to do 1/2 or 19/20? 
+  x.train <- center.expr[train.index,]
+  y.train <- classes.1014[train.index,]
+  train.dat <- data.frame(class = y.train$EFFECT, x.train) #data.frame
+  x.test <- center.expr[-train.index,]
+  y.test <- classes.1014[-train.index,]
+  test.dat <- data.frame(class = y.test$EFFECT, x.test) #data.frame
+  
+  m.error <- vector(mode = "numeric")
+  
+  for(m in M){
+    inside.error <- vector(mode="numeric", length= 10)
+  #  
+    for(j in 1:10){
+      #taking a sample of our train data (splitting past train data into train and test data sets)
+      n2 <- nrow(x.train)
+      train2.ix <- sample(1:n2, (19/20)*n2)
+      xtrain2 = x.train[train2.ix,]
+      ytrain2 = y.train[train2.ix,]
+      train2.dat <- data.frame(class2 = ytrain2$EFFECT, xtrain2) #data.frame
+      xvalidate = x.train[-train2.ix,]
+      yvalidate = y.train[-train2.ix,]
+      validate.dat <- data.frame(class2 = yvalidate$EFFECT, xvalidate) #data.frame
+      
+      pcr2.fit <- pcr(class2~., data=train2.dat, scale = TRUE, ncomp =m)
+      pcr2.pred <- predict(pcr2.fit, validate.dat, ncomp = m)
+      preds2 <- ifelse(pcr2.pred >= 0.5, 1, 0)
+      inside.error[j] <- mean(preds2 == yvalidate$EFFECT)
+    }
+    
+    m.error <- append(m.error, mean(inside.error))
+  }
+  
+  idx <- which.min(m.error)
+  best.k[i] <- M[idx]
+  
+  pcr.train <- pcr(class~., data=train.dat, scale = TRUE, ncomp= M[idx])
+  pcr.pred <- predict(pcr.train, test.dat, ncomp = M[idx])
+  preds <- ifelse(pcr.pred >= 0.5, 1, 0)
+  cv.error[i] <- mean(preds == y.test$EFFECT)
+}
+
+# #############test above pcr
+# pcr.fit <- pcr(class~., data=train.dat, scale = TRUE, ncomp =10)
+# 
+# #now use that fit to get predictions for the testing data
+# pcr.pred <- predict(pcr.fit, test.dat, ncomp = 10)
+# preds <- ifelse(pcr.pred >= 0.5, 1, 0)
+# mean(preds == y.test$EFFECT)
+# head(preds)
+
+```
+

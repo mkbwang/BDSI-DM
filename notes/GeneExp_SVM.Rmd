@@ -1,0 +1,105 @@
+---
+title: "GeneExp_SVM"
+author: "Mukai Wang"
+date: "July 17, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(e1071)
+library(dplyr)
+library(tictoc)
+library(reshape2)
+library(ggplot2)
+```
+
+```{r}
+gdsc = readRDS('/home/wangmk/UM/Research/BDSI/Data_Results/gdsc_screened.rds')
+gene = readRDS('/home/wangmk/UM/Research/BDSI/Data_Results/gene_expression.rds')
+```
+
+```{r}
+get.t <- function(dat, labs){
+    # split the data into effective and ineffective
+    effect <- dat[labs]
+    ineffect <- dat[!labs]
+    
+    # calculate the two sample means
+    effect.bar <- mean(effect)
+    ineffect.bar <- mean(ineffect)
+    
+    # calculate the two sample variances
+    v.effect <- var(effect)
+    v.ineffect <- var(ineffect)
+    
+    # calculate the sample sizes
+    n.effect <- length(effect)
+    n.ineffect <- length(ineffect)
+    
+    # calculate the sd
+    s <- sqrt((v.effect/n.effect) + (v.ineffect/n.ineffect))
+    
+    # calculate the test statistic
+    T.value <- (effect.bar - ineffect.bar)/s
+    return(abs(T.value))
+}
+```
+
+```{r}
+traindirect = '/home/wangmk/UM/Research/BDSI/train_drug/'
+```
+
+```{r}
+outcome <- data.frame(Gene = colnames(gene))
+```
+
+```{r}
+codes <- c("1006","1007","1008","1011","1014","1016","1019","1026","1032","1054","1060","1062")
+resultmat = matrix(nrow=12,ncol=5)
+rownames(resultmat) = c("1006","1007","1008","1011","1014","1016","1019","1026","1032","1054","1060","1062")
+colnames(resultmat) = c("2","3","4","5","6")
+```
+
+```{r}
+for (code in codes){
+  print(code)
+  gdsc_sub <- subset(gdsc, DRUG_ID_lib == code)[,c("CL","EFFECT")]
+  gene_sub <- gene[as.character(gdsc_sub$CL),]
+  gene_sub_full <- cbind(gene_sub, gdsc_sub['EFFECT'])
+  filename = paste(c('train_',code,'.rds'),collapse='')
+  fullname = paste(c(traindirect,filename),collapse='')
+  cl_subset = paste(readRDS(fullname))
+  gene_sub_full_train = gene_sub_full[cl_subset,]
+  # outcome$T <- apply(gene_sub,2,get.t,gdsc_sub$EFFECT)
+  n_features = c(2,3,4,5,6)
+  for (n_feature in n_features){
+    print(n_feature)
+    accuracy_test_svm = c()
+    for (j in 1:5){  
+      set.seed(j)
+      train_id=sample(1:nrow(gene_sub_full_train),0.8*nrow(gene_sub_full_train))
+      train_gene = gene_sub_full_train[train_id,]
+      test_gene = gene_sub_full_train[-train_id,]
+      outcome$T <- apply(train_gene[,-ncol(train_gene)], 2, get.t, train_gene$EFFECT)
+      subset_id = outcome %>% top_n(n_feature,T) %>% select(Gene)
+      subset_id = unname(t(subset_id[,1]))
+      train_gene_reduced = cbind(train_gene[,subset_id],train_gene['EFFECT'])
+      test_gene_reduced = cbind(test_gene[,subset_id],test_gene['EFFECT'])
+      train_gene_reduced$EFFECT <- as.factor(train_gene_reduced$EFFECT)
+      test_gene_reduced$EFFECT <- as.factor(test_gene_reduced$EFFECT)
+      tune.out = tune ( svm , EFFECT~., data = train_gene_reduced , 
+                 ranges = list ( cost = c (0.01 , 0.1 , 1 ,10 ,100),gamma=c(0.01,0.1,1,10,100) ) )
+      mysvm = svm(EFFECT~.,data=train_gene_reduced,kernel="radial",cost=tune.out$best.model$cost,gamma=tune.out$best.model$gamma,scale=FALSE)
+            # training_pred = predict(mysvm,train_sub)
+            # accuracy_train_svm[i] = mean(training_pred==train_sub[['EFFECT']])
+      test_pred = predict(mysvm,test_gene_reduced)
+      accuracy_test_svm[j] = mean(test_pred==test_gene_reduced[['EFFECT']])
+  }
+  resultmat[code,toString(n_feature)] = mean(accuracy_test_svm)
+  }
+}
+```

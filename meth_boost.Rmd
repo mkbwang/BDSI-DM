@@ -1,0 +1,124 @@
+---
+title: "meth_Boost"
+author: "Mukai Wang"
+date: "7/13/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(dplyr)
+library(ada)
+```
+
+First read in the gdsc outcome dataset and the meth expression dataset.
+
+```{r cars}
+gdsc = readRDS('/home/wangmk/data/gdsc_screened.rds')
+methylation = readRDS('/home/wangmk/data/methylation_processed.rds')
+```
+
+Filter out columns with NA values.
+
+```{r, echo=FALSE}
+meth_nona = t(na.omit(t(methylation)))
+```
+
+Define the function to apply T test to a column.
+
+```{r, echo=FALSE}
+# write a function to calculate the test statistics for a single meth (column)
+get.t <- function(dat, labs){
+    # split the data into effective and ineffective
+    effect <- dat[labs]
+    ineffect <- dat[!labs]
+    
+    # calculate the two sample means
+    effect.bar <- mean(effect)
+    ineffect.bar <- mean(ineffect)
+    
+    # calculate the two sample variances
+    v.effect <- var(effect)
+    v.ineffect <- var(ineffect)
+    
+    # calculate the sample sizes
+    n.effect <- length(effect)
+    n.ineffect <- length(ineffect)
+    
+    # calculate the sd
+    s <- sqrt((v.effect/n.effect) + (v.ineffect/n.ineffect))
+    
+    # calculate the test statistic
+    T <- (effect.bar - ineffect.bar)/s
+    
+    # calculate the degrees of freedom
+    # df = ((v.effect/n.effect+v.ineffect/n.ineffect)^2)/(v.effect^2/(n.effect^2 * (n.effect-1))+v.ineffect^2/(n.ineffect^2 * (n.ineffect-1)))
+    
+    # compare our t value and the threshold, decide whether we should keep it or not
+    return(abs(T))
+}
+```
+
+Declare a dataframe that stores the names of the columns(meths) and another column of whether we are keeping this column or not.
+
+```{r,echo=FALSE}
+outcome <- data.frame(CG = colnames(meth_nona))
+```
+
+Apply the declared function over all the columns.
+
+```{r,echo=FALSE}
+outcome$T <- apply(meth_sub,2,get.t,gdsc_sub$EFFECT)
+```
+
+Try with 12 drug codes. Subset the data
+
+```{r,echo=FALSE}
+tic()
+codes <- c("1006","1007","1008","1011","1014","1016","1019","1026","1032","1054","1060","1062")
+resultmat = matrix(nrow=12,ncol=5)
+rownames(resultmat) = c("1006","1007","1008","1011","1014","1016","1019","1026","1032","1054","1060","1062")
+colnames(resultmat) = c("50","100","200","500","1000")
+for (code in codes){
+  print(code)
+  gdsc_sub <- subset(gdsc, DRUG_ID_lib == code)[,c("CL","EFFECT")]
+  meth_sub <- meth_nona[as.character(gdsc_sub$CL),]
+  meth_sub_full <- cbind(meth_sub, gdsc_sub['EFFECT'])
+  # outcome$T <- apply(meth_sub,2,get.t,gdsc_sub$EFFECT)
+  n_features = c(50,100,200,500,1000)
+  for (n_feature in n_features){
+    print(n_feature)
+    train_error = c()
+    test_error = c()
+    for (j in 1:5){
+      set.seed(j)
+      train_id=sample(1:nrow(meth_sub_full),0.7*nrow(meth_sub_full))
+      train_meth = meth_sub_full[train_id,]
+      test_meth = meth_sub_full[-train_id,]
+      outcome$T <- apply(train_meth[,-ncol(train_meth)], 2, get.t, train_meth$EFFECT)
+      subset_id = outcome %>% top_n(n_feature,T) %>% select(CG)
+      subset_id = unname(t(subset_id[,1]))
+      train_meth_reduced = cbind(train_meth[,subset_id],train_meth['EFFECT'])
+      test_meth_reduced = cbind(test_meth[,subset_id],test_meth['EFFECT'])
+      #train_meth_reduced = as.data.frame(train_meth_reduced)
+      #test_meth_reduced = as.data.frame(test_meth_reduced)
+      #cn.col.name <- gsub("[-]", ".", colnames(train_meth_reduced))
+      #colnames(train_meth_reduced) <- cn.col.name
+      #colnames(test_meth_reduced) <- cn.col.name
+      train_meth_reduced$EFFECT <- as.factor(train_meth_reduced$EFFECT)
+      test_meth_reduced$EFFECT <- as.factor(test_meth_reduced$EFFECT)
+      myboost = ada(EFFECT~.,data=train_meth_reduced,iter=5)
+      #train_pred = predict(myforest,train_meth)
+      test_pred = predict(myboost,test_meth_reduced)
+      #train_error[j] = mean(train_pred!=train_meth[['EFFECT']])
+      test_error[j] = mean(test_pred!=test_meth_reduced[['EFFECT']])
+  }
+  resultmat[code,toString(n_feature)] = 1-mean(test_error)
+  }
+}
+toc()
+```

@@ -1,0 +1,128 @@
+---
+title: "CNV_RF_Simple"
+author: "Mukai Wang"
+date: "July 17, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(randomForest)
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+```
+
+```{r}
+library(tictoc)
+```
+
+```{r}
+gdsc = readRDS('/home/wangmk/UM/Research/BDSI/Data_Results/gdsc_screened.rds')
+cnv = readRDS('/home/wangmk/UM/Research/BDSI/Data_Results/cnNEW.rds')
+```
+
+```{r}
+get.t <- function(dat, labs){
+    # split the data into effective and ineffective
+    effect <- dat[labs]
+    ineffect <- dat[!labs]
+    
+    # calculate the two sample means
+    effect.bar <- mean(effect)
+    ineffect.bar <- mean(ineffect)
+    
+    # calculate the two sample variances
+    v.effect <- var(effect)
+    v.ineffect <- var(ineffect)
+    
+    # calculate the sample sizes
+    n.effect <- length(effect)
+    n.ineffect <- length(ineffect)
+    
+    # calculate the sd
+    s <- sqrt((v.effect/n.effect) + (v.ineffect/n.ineffect))
+    
+    df = ((v.effect/n.effect+v.ineffect/n.ineffect)^2)/(v.effect^2/(n.effect^2 * (n.effect-1))+v.ineffect^2/(n.ineffect^2 * (n.ineffect-1)))
+    # calculate the test statistic
+    T.value <- (effect.bar - ineffect.bar)/s
+    return(abs(T.value)>qt(1-0.005,df))
+}
+```
+
+```{r}
+traindirect = '/home/wangmk/UM/Research/BDSI/train_drug/'
+```
+
+```{r}
+outdir = '/home/wangmk/UM/Research/BDSI/Data_Results/RF/'
+```
+
+```{r}
+names(cnv) <- make.names(names(cnv))
+```
+
+```{r}
+code = "1007"
+gdsc_sub <- subset(gdsc, DRUG_ID_lib == code)[,c("CL","EFFECT")]
+cnv_sub <- cnv[as.character(gdsc_sub$CL),]
+cnv_sub_full <- cbind(cnv_sub, gdsc_sub['EFFECT'])
+cnv_sub <- NULL
+filename = paste(c('train_',code,'.rds'),collapse='')
+fullname = paste(c(traindirect,filename),collapse='')
+cl_train = paste(readRDS(fullname))
+cl_test = setdiff(rownames(cnv_sub_full),cl_train)
+cnv_sub_full_train = cnv_sub_full[cl_train,]
+cnv_sub_full_test = cnv_sub_full[cl_test,]
+outcome <- data.frame(Gene = colnames(cnv))
+outcome$keep <- apply(cnv_sub_full_train[,-ncol(cnv_sub_full_train)], 2, get.t, cnv_sub_full_train$EFFECT)
+subset_id = outcome %>% filter(keep==TRUE) %>% select(Gene)
+subset_id = unname(t(subset_id[,1]))
+cnv_train_reduced = cbind(cnv_sub_full_train[,subset_id],cnv_sub_full_train['EFFECT'])
+cnv_test_reduced = cbind(cnv_sub_full_test[,subset_id],cnv_sub_full_test['EFFECT'])
+cnv_train_reduced$EFFECT = as.factor(cnv_train_reduced$EFFECT)
+cnv_test_reduced$EFFECT = as.factor(cnv_test_reduced$EFFECT)
+myforest = randomForest(EFFECT~.,data=cnv_train_reduced,mtry=round(sqrt(ncol(cnv_train_reduced)-1)),ntree=100)
+test_pred = predict(myforest,cnv_test_reduced)
+myforest = NULL
+test_pred = as.data.frame(test_pred)
+comp = cbind(test_pred,cnv_test_reduced['EFFECT'])
+fname = paste(c("CNV_RF_",code,'.rds'),collapse='')
+fullname = paste(c(outdir,fname),collapse='')
+saveRDS(comp,fullname)
+```
+
+
+```{r}
+codes = c("1006","1007","1008","1011","1014","1016","1019","1026","1032","1054","1060","1062")
+for (code in codes){
+  print(code)
+  gdsc_sub <- subset(gdsc, DRUG_ID_lib == code)[,c("CL","EFFECT")]
+  cnv_sub <- cnv[as.character(gdsc_sub$CL),]
+  cnv_sub_full <- cbind(cnv_sub, gdsc_sub['EFFECT'])
+  filename = paste(c('train_',code,'.rds'),collapse='')
+  fullname = paste(c(traindirect,filename),collapse='')
+  cl_train = paste(readRDS(fullname))
+  cl_test = setdiff(rownames(cnv_sub_full),cl_train)
+  cnv_sub_full_train = cnv_sub_full[cl_train,]
+  cnv_sub_full_test = cnv_sub_full[cl_test,]
+  outcome <- data.frame(Gene = colnames(cnv_sub))
+  outcome$keep <- apply(cnv_sub_full_train[,-ncol(cnv_sub_full_train)], 2, get.t, cnv_sub_full_train$EFFECT)
+  subset_id = outcome %>% filter(keep==TRUE) %>% select(Gene)
+  subset_id = unname(t(subset_id[,1]))
+  cnv_train_reduced = cbind(cnv_sub_full_train[,subset_id],cnv_sub_full_train['EFFECT'])
+  cnv_test_reduced = cbind(cnv_sub_full_test[,subset_id],cnv_sub_full_test['EFFECT'])
+  cnv_train_reduced$EFFECT = as.factor(cnv_train_reduced$EFFECT)
+  cnv_test_reduced$EFFECT = as.factor(cnv_test_reduced$EFFECT)
+  myforest = randomForest(EFFECT~.,data=cnv_train_reduced,mtry=round(sqrt(ncol(cnv_train_reduced)-1)),ntree=100)
+  test_pred = predict(myforest,cnv_test_reduced)
+  test_pred = as.data.frame(test_pred)
+  comp = cbind(test_pred,cnv_test_reduced['EFFECT'])
+  fname = paste(c("cnvExp_RF_",code,'.rds'),collapse='')
+  fullname = paste(c(outdir,fname),collapse='')
+  saveRDS(comp,fullname)
+}
+```

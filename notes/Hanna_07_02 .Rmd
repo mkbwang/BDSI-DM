@@ -1,0 +1,136 @@
+---
+title: "070218 Research Work"
+author: "Hanna Grossman"
+date: "7/2/2018"
+output: html_document
+---
+#finding PCA 
+```{r}
+library(pls)
+library(ggplot2)
+library(dplyr)
+expr.dat = readRDS("/Users/hannagrossman/Desktop/BDSI Research/expression.rds")
+pr.out <- prcomp(expr.dat)
+names(pr.out)
+pr.var = pr.out$sdev^2
+pr.var[1:5]
+pve = pr.var/sum(pr.var)
+pve[1:5]
+sum(pve[1:5])
+pr_scale.out <- prcomp(expr.dat, scale=TRUE)
+pr_scale.var = pr_scale.out$sdev^2
+pr_scale.var[1:5]
+pve_scale= pr_scale.var/sum(pr_scale.var)
+pve_scale[1:5]
+sum(pve_scale[1:10])
+```
+
+#choosing what drugs to use 
+```{r}
+head(screen.dat)
+classes.1014 <- subset(screen.dat, DRUG_ID_lib == "1014")[,c("CL", "EFFECT")]
+#246 observations 
+head(classes.1014)
+filter(classes.1014, EFFECT == TRUE) %>% nrow()
+135/246
+
+drug <- screen.dat$DRUG_ID_lib
+unique(drug) 
+#59 drugs 
+
+#vector of all drug numbers 
+a <- c(1001, 1003, 1004, 1006, 1010, 1011, 1012, 1016, 1017, 1018, 1020, 1022, 1023, 1024, 1025, 1028, 1031, 1032, 1033, 1042, 1053, 1057, 1058, 1059, 1149, 1007, 1014, 1039, 1049, 1061, 1062, 1066, 1067, 1052, 1129, 1038, 1054, 1060, 1009, 1043, 1037, 1013, 1026, 1029, 1030, 1036, 1047, 1050, 1069, 1008, 1072, 1015, 1019, 1021, 1046, 1170, 1133, 1175, 1005)
+
+a[1]
+
+for(i in a[1]:a[59]){
+  x <- subset(screen.dat, DRUG_ID_lib == "i")["EFFECT"]
+  print(nrow(x)) 
+  print(filter(x, EFFECT == TRUE) %>% nrow())
+}
+
+screen.dat %>% group_by(DRUG_ID_lib, EFFECT) %>% summarise(count=n())
+
+
+head(classes.1014)
+expr.1014[1:6,1:6]
+
+b <- rownames(expr.1014)
+c <- classes.1014[,1]
+
+d <- cbind(b,c)
+d$CL <- as.numeric(d$CL)
+d$b <- as.character(d$b)
+d$b <- as.numeric(d$b)
+d$e <- d$CL - d$b
+```
+
+
+```{r}
+classes.1014 <- subset(screen.dat, DRUG_ID_lib == "1014")[,c("CL","EFFECT")]
+expr.1014 <- expr.dat[as.character(classes.1014$CL),]
+head(classes.1014)
+expr.1014[1:6,1:6]
+exprnew <- cbind(classes.1014, expr.1014)
+exprnew[1:6,1:6]
+sum(is.na(exprnew))
+#########
+library(class)
+
+x=expr.dat
+y=exprnew[,2]
+  
+M <- 1:100
+n <- nrow(x)
+
+cv.error <- vector(mode = "numeric", length=10)
+
+best.k <- vector(mode="numeric", length=10)
+
+for(i in 1:10){
+  
+  train.ix <- sample(1:n, (19/20)*n)
+  xtrain = x[train.ix,]
+  ytrain = y[train.ix]
+  xtest = x[-train.ix,]
+  ytest = y[-train.ix]
+  
+  m.error <- vector(mode = "numeric")
+  
+  for(m in M){
+    
+    inside.error <- vector(mode="numeric", length= 10)
+    
+    for(j in 1:10){
+      n2 <- nrow(xtrain)
+      train2.ix <- sample(1:n2, (19/20)*n2)
+      xtrain2 = xtrain[train2.ix,]
+      ytrain2 = ytrain[train2.ix]
+      xvalidate = xtrain[-train2.ix,]
+      xvalidate = ytrain[-train2.ix]
+      
+      fit <- knn(train = xtrain2, test = xvalidate, cl=ytrain2, k=m)
+      inside.error[j]<- mean(fit != yvalidate)
+    }
+    
+    m.error <- append(m.error, mean(inside.error))
+  }
+  
+  idx <- which.min(m.error)
+  best.k[i] <- M[idx]
+  
+  fit.train <- knn(train = xtrain, test = xtest, cl = ytrain, k = M[idx])
+  cv.error[i] <- mean(fit.train != ytest)
+}
+
+#with NAs: 
+xvalidate
+ytrain2
+ytrain
+
+  train.ix <- sample(1:n, (19/20)*n)
+  xtrain = x[train.ix,]
+  ytrain = y[train.ix]
+  xtest = x[-train.ix,]
+  ytest = y[-train.ix]
+```

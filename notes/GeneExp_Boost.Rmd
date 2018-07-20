@@ -1,0 +1,248 @@
+---
+title: "GeneExp_boost"
+author: "Mukai Wang"
+date: "July 17, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ada)
+library(dplyr)
+library(tictoc)
+```
+
+```{r}
+gdsc = readRDS('/home/wangmk/UM/Research/BDSI/Data_Results/gdsc_screened.rds')
+gene = readRDS('/home/wangmk/UM/Research/BDSI/Data_Results/gene_expression.rds')
+```
+
+There are 2 functions: one for cutting out those absolutely not significant genes. The other is for calculating actual t statistics.
+
+```{r}
+get.t.1 <- function(dat, labs){
+    # split the data into effective and ineffective
+    effect <- dat[labs]
+    ineffect <- dat[!labs]
+    
+    # calculate the two sample means
+    effect.bar <- mean(effect)
+    ineffect.bar <- mean(ineffect)
+    
+    # calculate the two sample variances
+    v.effect <- var(effect)
+    v.ineffect <- var(ineffect)
+    
+    # calculate the sample sizes
+    n.effect <- length(effect)
+    n.ineffect <- length(ineffect)
+    
+    # calculate the sd
+    s <- sqrt((v.effect/n.effect) + (v.ineffect/n.ineffect))
+    
+    #calculate degrees of freedom
+    df = ((v.effect/n.effect+v.ineffect/n.ineffect)^2)/(v.effect^2/(n.effect^2 * (n.effect-1))+v.ineffect^2/(n.ineffect^2 * (n.ineffect-1)))
+    
+    # calculate the test statistic
+    T.value <- (effect.bar - ineffect.bar)/s
+    return(abs(T.value) >qt(0.95,df))
+}
+```
+
+```{r}
+get.t.2 <- function(dat, labs){
+    # split the data into effective and ineffective
+    effect <- dat[labs]
+    ineffect <- dat[!labs]
+    
+    # calculate the two sample means
+    effect.bar <- mean(effect)
+    ineffect.bar <- mean(ineffect)
+    
+    # calculate the two sample variances
+    v.effect <- var(effect)
+    v.ineffect <- var(ineffect)
+    
+    # calculate the sample sizes
+    n.effect <- length(effect)
+    n.ineffect <- length(ineffect)
+    
+    # calculate the sd
+    s <- sqrt((v.effect/n.effect) + (v.ineffect/n.ineffect))
+    
+    #calculate degrees of freedom
+    #df = ((v.effect/n.effect+v.ineffect/n.ineffect)^2)/(v.effect^2/(n.effect^2 * (n.effect-1))+v.ineffect^2/(n.ineffect^2 * (n.ineffect-1)))
+    
+    # calculate the test statistic
+    T.value <- (effect.bar - ineffect.bar)/s
+    return(abs(T.value) )
+}
+```
+
+
+
+```{r}
+traindirect = '/home/wangmk/UM/Research/BDSI/train_drug/'
+```
+
+```{r}
+n_features = c(5,10,20,30,50,100,200,500,1000,2000)
+```
+
+
+```{r}
+code = "1007"
+
+
+accuracy = rep(0,10)
+names(accuracy) = c('5','10','20','30','50','100','200','500','1000','2000')
+gdsc_sub <- subset(gdsc, DRUG_ID_lib == code)[,c("CL","EFFECT")]
+gene_sub <- gene[as.character(gdsc_sub$CL),]
+
+filename = paste(c('train_',code,'.rds'),collapse='')
+fullname = paste(c(traindirect,filename),collapse='')
+cl_train = paste(readRDS(fullname))
+cl_test = setdiff(rownames(gene_sub),cl_train)
+
+gene_sub_train = gene_sub[cl_train,]
+gene_sub_test = gene_sub[cl_test,]
+
+gdsc_sub_train = tbl_df(gdsc_sub) %>% filter(CL %in% cl_train)
+gdsc_sub_test = tbl_df(gdsc_sub) %>% filter(CL %in% cl_test)
+```
+
+```{r}
+#outcome <- data.frame(Gene = colnames(gene))
+```
+
+```{r}
+#outcome$T <- apply(gene_sub_train, 2, get.t.1, gdsc_sub_train$EFFECT)
+#subset_id = outcome %>% filter(T==TRUE) %>% select(Gene)
+#subset_id = as.character(unname(t(subset_id[,1])))
+```
+
+```{r}
+#sigdir = '/home/wangmk/UM/Research/BDSI/Data_Results/Significant_GeneExp/'
+#filename = paste(c('significant_',code,'.rds'),collapse='')
+#fullname = paste(c(sigdir,filename),collapse='')
+#saveRDS(subset_id,fullname)
+```
+
+```{r}
+sigdir = '/home/wangmk/UM/Research/BDSI/Data_Results/Significant_GeneExp/'
+filename = paste(c('significant_',code,'.rds'),collapse='')
+fullname = paste(c(sigdir,filename),collapse='')
+subset_id = readRDS(fullname)
+```
+
+```{r}
+gene_sub_train = gene_sub_train[,subset_id]
+gene_sub_test = gene_sub_test[,subset_id]
+```
+
+```{r}
+outcome <- data.frame(Gene = colnames(gene_sub_train))
+```
+
+
+
+```{r}
+tic()
+for (j in 1:10){
+  print(j)
+  set.seed(j)
+  train_id = sample(1:nrow(gdsc_sub_train),0.9*nrow(gdsc_sub_train))
+  #gene_sub_traintrain = gene_sub_train[train_id,]
+  #gdsc_sub_traintrain = gdsc_sub_train[train_id,]
+  #gene_sub_traintest = gene_sub_train[-train_id,]
+  #gdsc_sub_traintest = gdsc_sub_train[-train_id,]
+  outcome$T <- apply(gene_sub_train[train_id,], 2, get.t.2, gdsc_sub_train[train_id,'EFFECT'][[1]])
+  for(n_feature in n_features){
+    print(n_feature)
+    subset_id = outcome %>% top_n(n_feature,T) %>% select(Gene)
+    subset_id = unname(t(subset_id[,1]))
+    gene_sub_traintrain_full = cbind(gene_sub_train[train_id,subset_id],gdsc_sub_train[train_id,'EFFECT'])
+    gene_sub_traintrain_full$EFFECT = as.factor(gene_sub_traintrain_full$EFFECT)
+    gene_sub_traintest_full = cbind(gene_sub_train[-train_id,subset_id],gdsc_sub_train[-train_id,'EFFECT'])
+    gene_sub_traintest_full$EFFECT = as.factor(gene_sub_traintest_full$EFFECT)
+    myboost = ada(EFFECT~.,data=gene_sub_traintrain_full,iter=5)
+    test_pred = predict(myboost,gene_sub_traintest_full)
+    accuracy[toString(n_feature)] = accuracy[toString(n_feature)]+mean(test_pred==gdsc_sub_train[-train_id,'EFFECT'][[1]])
+  }
+}
+toc()
+```
+
+```{r}
+accuracy/10
+which.max(accuracy)
+```
+
+```{r}
+outcome$T <- apply(gene_sub_train, 2, get.t.2, gdsc_sub_train$EFFECT)
+subset_id = outcome %>% top_n(500,T) %>% select(Gene)
+subset_id = as.character(unname(t(subset_id[,1])))
+```
+
+```{r}
+gene_sub_train_reduced = cbind(gene_sub_train[,subset_id],gdsc_sub_train['EFFECT'])
+gene_sub_test_reduced = cbind(gene_sub_test[,subset_id],gdsc_sub_test['EFFECT'])
+```
+
+```{r}
+gene_sub_train_reduced$EFFECT = as.factor(gene_sub_train_reduced$EFFECT)
+gene_sub_test_reduced$EFFECT = as.factor(gene_sub_test_reduced$EFFECT)
+```
+
+```{r}
+n_iters = c(5,10,15,20,25,30)
+accuracy = rep(0,6)
+names(accuracy) = c('5','10','15','20','25','30')
+for (j in 1:10){
+  print(j)
+  set.seed(j)
+  train_id = sample(1:nrow(gdsc_sub_train),0.9*nrow(gdsc_sub_train))
+  for (n_iter in n_iters){
+    print(n_iter)
+    myboost = ada(EFFECT~.,data=gene_sub_train_reduced[train_id,])
+    test_pred = predict(myboost,gene_sub_test_reduced)
+    accuracy[toString(n_iter)] = accuracy[toString(n_iter)] + mean(test_pred==gene_sub_test_reduced[['EFFECT']])
+  }
+}
+```
+
+```{r}
+accuracy/10
+which.max(accuracy)
+```
+
+
+```{r}
+myboost = ada(EFFECT~.,data=gene_sub_train_reduced,iter=15)
+```
+
+```{r}
+test_pred = predict(myboost,gene_sub_test_reduced)
+test_pred = as.data.frame(test_pred)
+```
+
+```{r}
+comp = cbind(test_pred,gene_sub_test_reduced['EFFECT'])
+```
+
+```{r}
+sum(comp$test_pred==comp$EFFECT)/nrow(comp)
+```
+
+```{r}
+outdir = '/home/wangmk/UM/Research/BDSI/Data_Results/Boost/'
+```
+
+```{r}
+fname = paste(c("GeneExp_Boost_",code,'.rds'),collapse='')
+fullname = paste(c(outdir,fname),collapse='')
+saveRDS(comp,fullname)
+```

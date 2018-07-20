@@ -1,0 +1,133 @@
+---
+title: "070518 Research Work"
+author: "Hanna Grossman"
+date: "7/5/2018"
+output: html_document
+---
+```{r}
+expr.dat = readRDS("/Users/hannagrossman/Desktop/BDSI Research/expression.rds")
+screen.dat = readRDS("/Users/hannagrossman/Desktop/BDSI Research/screening.rds")
+
+classes.1014 <- subset(screen.dat, DRUG_ID_lib == "1014")[,c("CL","EFFECT")]
+expr.1014 <- expr.dat[as.character(classes.1014$CL),]
+exprnew <- cbind(classes.1014, expr.1014)
+
+x=exprnew[,3:17737]
+y=exprnew[,2]
+n <- nrow(x)
+
+accuracy <- vector(mode = "numeric", length=10)
+
+for(i in 1:10){
+  
+  train.ix <- sample(1:n, (9/10)*n)
+  xtrain = x[train.ix,]
+  ytrain = y[train.ix]
+  xtest = x[-train.ix,]
+  ytest = y[-train.ix]
+  
+  lasso.fit <- cv.glmnet(x=as.matrix(xtrain), y=ytrain, family = "binomial", nfolds = 10)
+  
+  fit = glmnet(x=as.matrix(xtrain), y=ytrain, family = "binomial", alpha=1, lambda=lasso.fit$lambda.1se)
+  
+  out <- predict(fit, as.matrix(xtest), type="class")
+  
+  accuracy[i] <- mean(out==ytest)
+}
+  
+mean(error)
+
+
+```
+
+
+```{r}
+library(dplyr)
+library("glmnet")
+library(e1071)
+library(pROC)
+library(caret)
+
+expr.dat = readRDS("/Users/hannagrossman/Desktop/BDSI Research/expression.rds")
+screen.dat = readRDS("/Users/hannagrossman/Desktop/BDSI Research/screening.rds")
+
+classes.1014 <- subset(screen.dat, DRUG_ID_lib == "1014")[,c("CL","EFFECT")]
+expr.1014 <- expr.dat[as.character(classes.1014$CL),]
+exprnew <- cbind(classes.1014, expr.1014)
+
+x=exprnew[,3:17737]
+y=exprnew[,2]
+n <- nrow(x)
+
+accuracy <- vector(mode = "numeric", length=2)
+best.lambda <- vector(mode="numeric", length=2)
+for(i in 1:2){
+  
+  train.ix <- sample(1:n, (9/10)*n)
+  xtrain = x[train.ix,]
+  ytrain = y[train.ix]
+  xtest = x[-train.ix,]
+  ytest = y[-train.ix]
+  
+  inside.accuracy <- vector(mode="numeric", length= 2)
+  lambdas <- vector(mode="numeric", length=2)
+  for(j in 1:2){
+    n2 <- nrow(xtrain)
+    train2.ix <- sample(1:n2, (19/20)*n2)
+    xtrain2 = xtrain[train2.ix,]
+    ytrain2 = ytrain[train2.ix]
+    xvalidate = xtrain[-train2.ix,]
+    yvalidate = ytrain[-train2.ix]
+    
+    lasso.fit <- cv.glmnet(x=as.matrix(xtrain2), y=ytrain2, family = "binomial", nfolds = 10)
+    lambdas[i] <- lasso.fit$lambda.1se
+    fit = glmnet(x=as.matrix(xtrain2), y=ytrain2, family = "binomial", lambda=lasso.fit$lambda.1se)
+    
+    out2 <- predict(fit, as.matrix(xvalidate), type="class")
+    inside.accuracy[j]<- mean(out2 == yvalidate)
+     
+  }
+  idx <- which.max(inside.accuracy)
+  best.lambda[i] <- lambdas[idx]
+  
+  fit = glmnet(x=as.matrix(xtrain), y=ytrain, family = "binomial", alpha=1, lambda=lambdas[idx])
+  
+  out <- predict(fit, as.matrix(xtest), type="class")
+  
+  accuracy[i] <- mean(out==ytest)
+}
+
+mean(accuracy)
+best.lambda
+
+```
+
+#working on NAs 
+```{r}
+screen.dat = readRDS("/Users/hannagrossman/Desktop/BDSI Research/screening.rds")
+cn.dat = readRDS("/Users/hannagrossman/Desktop/BDSI Research/copynumber.rds")
+meth.dat = readRDS("/Users/hannagrossman/Desktop/BDSI Research/methylation.rds")
+meth.dat[1:10,1:10]
+
+sum(is.na(meth.dat))
+#40388
+
+sum(is.na(cn.dat))
+#103263
+
+meth_na<- which(is.na(meth.dat), arr.ind=TRUE)
+ 
+cn_na <- which(is.na(cn.dat), arr.ind=TRUE)
+
+head(meth_na)
+
+meth_na[,2]
+length(unique(meth_na[,2]))
+9597/ncol(meth.dat)
+# 0.01976676
+
+#ideas of how to deal with NAs 
+#1. remove the columns with nas 
+#2. change data from continuous to discrete - ex for cn one category could be na, then >2, etc 
+#3. try to use imputation with random forests, knn, etc - fills in those NAs with some value - uses data to guess what value would have been 
+```

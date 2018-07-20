@@ -1,0 +1,144 @@
+---
+title: "CNV_SVM"
+author: "Mukai Wang"
+date: "July 16, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(e1071)
+library(dplyr)
+library(tictoc)
+```
+
+```{r}
+gdsc = readRDS('/home/wangmk/UM/Research/BDSI/Data_Results/gdsc_screened.rds')
+cnv = readRDS('/home/wangmk/UM/Research/BDSI/Data_Results/cnNEW.rds')
+```
+
+
+```{r}
+names(cnv) <- make.names(names(cnv))
+```
+
+```{r}
+get.t <- function(dat, labs){
+    # split the data into effective and ineffective
+    effect <- dat[labs]
+    ineffect <- dat[!labs]
+    
+    # calculate the two sample means
+    effect.bar <- mean(effect)
+    ineffect.bar <- mean(ineffect)
+    
+    # calculate the two sample variances
+    v.effect <- var(effect)
+    v.ineffect <- var(ineffect)
+    
+    # calculate the sample sizes
+    n.effect <- length(effect)
+    n.ineffect <- length(ineffect)
+    
+    # calculate the sd
+    s <- sqrt((v.effect/n.effect) + (v.ineffect/n.ineffect))
+    
+    # calculate the test statistic
+    T <- (effect.bar - ineffect.bar)/s
+    
+    # calculate the degrees of freedom
+    # df = ((v.effect/n.effect+v.ineffect/n.ineffect)^2)/(v.effect^2/(n.effect^2 * (n.effect-1))+v.ineffect^2/(n.ineffect^2 * (n.ineffect-1)))
+    
+    # compare our t value and the threshold, decide whether we should keep it or not
+    return(abs(T))
+}
+```
+
+```{r}
+outcome <- data.frame(Gene = colnames(cnv))
+```
+
+```{r}
+codes <- c("1006","1007","1008","1011","1014","1016","1019","1026","1032","1054","1060","1062")
+resultmat = matrix(nrow=12,ncol=5)
+rownames(resultmat) = c("1006","1007","1008","1011","1014","1016","1019","1026","1032","1054","1060","1062")
+colnames(resultmat) = c("2","3","4","5","6")
+```
+
+```{r}
+traindirect = '/home/wangmk/UM/Research/BDSI/train_drug/'
+```
+
+
+```{r}
+tic()
+for (code in codes){
+  print(code)
+  gdsc_sub <- subset(gdsc, DRUG_ID_lib == code)[,c("CL","EFFECT")]
+  
+  cnv_sub <- cnv[as.character(gdsc_sub$CL),]
+  cnv_sub_full <- cbind(cnv_sub, gdsc_sub['EFFECT'])
+  filename = paste(c('train_',code,'.rds'),collapse='')
+  fullname = paste(c(traindirect,filename),collapse='')
+  cl_subset = paste(readRDS(fullname))
+  cnv_sub_full_train = cnv_sub_full[cl_subset,]
+  # outcome$T <- apply(cnv_sub,2,get.t,gdsc_sub$EFFECT)
+  n_features = c(2,3,4,5,6)
+  for (n_feature in n_features){
+    print(n_feature)
+    accuracy_test_svm = c()
+    for (j in 1:5){  
+      set.seed(j)
+      train_id=sample(1:nrow(cnv_sub_full_train),0.8*nrow(cnv_sub_full_train))
+      train_cnv = cnv_sub_full_train[train_id,]
+      test_cnv = cnv_sub_full_train[-train_id,]
+      outcome$T <- apply(train_cnv[,-ncol(train_cnv)], 2, get.t, train_cnv$EFFECT)
+      subset_id = outcome %>% top_n(n_feature,T) %>% select(Gene)
+      subset_id = unname(t(subset_id[,1]))
+      train_cnv_reduced = cbind(train_cnv[,subset_id],train_cnv['EFFECT'])
+      test_cnv_reduced = cbind(test_cnv[,subset_id],test_cnv['EFFECT'])
+      train_cnv_reduced$EFFECT <- as.factor(train_cnv_reduced$EFFECT)
+      test_cnv_reduced$EFFECT <- as.factor(test_cnv_reduced$EFFECT)
+      tune.out = tune ( svm , EFFECT~., data = train_cnv_reduced , 
+                 ranges = list ( cost = c (0.01 , 0.1 , 1 ,10 ,100),gamma=c(0.01,0.1,1,10,100) ) )
+      mysvm = svm(EFFECT~.,data=train_cnv_reduced,kernel="radial",cost=tune.out$best.model$cost,gamma=tune.out$best.model$gamma,scale=FALSE)
+            # training_pred = predict(mysvm,train_sub)
+            # accuracy_train_svm[i] = mean(training_pred==train_sub[['EFFECT']])
+      test_pred = predict(mysvm,test_cnv_reduced)
+      accuracy_test_svm[j] = mean(test_pred==test_cnv_reduced[['EFFECT']])
+  }
+  resultmat[code,toString(n_feature)] = mean(accuracy_test_svm)
+  }
+}
+toc()
+```
+
+```{r}
+library(reshape2)
+library(ggplot2)
+```
+
+```{r}
+resultmat = cbind(rownames(resultmat),resultmat)
+colnames(resultmat)[1]='Drug'
+```
+
+```{r}
+resultmat$Drug = as.numeric(resultmat$Drug)
+```
+
+```{r}
+resultmat = as.data.frame(resultmat)
+resultmat_long = melt(resultmat,id="Drug")
+resultmat_long$Drug = as.numeric(resultmat_long$Drug)
+colnames(resultmat_long) = c("Drug","Num_Features","Accuracy")
+resultmat_long$Accuracy = as.numeric(resultmat_long$Accuracy)
+```
+
+```{r}
+ggplot(resultmat_long,aes(x=Drug,y=Accuracy,colour=Num_Features))+geom_line()+geom_point()+theme(text=element_text(size=14))+
+  scale_x_continuous(breaks=1:12,labels=c("1006","1007","1008","1011","1014","1016","1019","1026","1032","1054","1060","1062"))+ggtitle("Test Accuracy of SVM")
+```

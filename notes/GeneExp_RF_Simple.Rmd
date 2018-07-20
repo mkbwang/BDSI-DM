@@ -1,0 +1,158 @@
+---
+title: "GeneExp_RF_Simple"
+author: "Mukai Wang"
+date: "July 17, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(randomForest)
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+```
+
+```{r}
+library(tictoc)
+```
+
+```{r}
+gdsc = readRDS('/home/wangmk/UM/Research/BDSI/Data_Results/gdsc_screened.rds')
+gene = readRDS('/home/wangmk/UM/Research/BDSI/Data_Results/gene_expression.rds')
+```
+
+```{r}
+get.t <- function(dat, labs){
+    # split the data into effective and ineffective
+    effect <- dat[labs]
+    ineffect <- dat[!labs]
+    
+    # calculate the two sample means
+    effect.bar <- mean(effect)
+    ineffect.bar <- mean(ineffect)
+    
+    # calculate the two sample variances
+    v.effect <- var(effect)
+    v.ineffect <- var(ineffect)
+    
+    # calculate the sample sizes
+    n.effect <- length(effect)
+    n.ineffect <- length(ineffect)
+    
+    # calculate the sd
+    s <- sqrt((v.effect/n.effect) + (v.ineffect/n.ineffect))
+    
+    df = ((v.effect/n.effect+v.ineffect/n.ineffect)^2)/(v.effect^2/(n.effect^2 * (n.effect-1))+v.ineffect^2/(n.ineffect^2 * (n.ineffect-1)))
+    # calculate the test statistic
+    T.value <- (effect.bar - ineffect.bar)/s
+    return(abs(T.value)>qt(0.95,df))
+}
+```
+
+```{r}
+traindirect = '/home/wangmk/UM/Research/BDSI/train_drug/'
+```
+
+```{r}
+outdir = '/home/wangmk/UM/Research/BDSI/Data_Results/RF/'
+```
+
+```{r}
+codes = c("1006","1007","1008","1011","1014","1016","1019","1026","1032","1054","1060","1062")
+for (code in codes){
+  print(code)
+  gdsc_sub <- subset(gdsc, DRUG_ID_lib == code)[,c("CL","EFFECT")]
+  gene_sub <- gene[as.character(gdsc_sub$CL),]
+  gene_sub_full <- cbind(gene_sub, gdsc_sub['EFFECT'])
+  filename = paste(c('train_',code,'.rds'),collapse='')
+  fullname = paste(c(traindirect,filename),collapse='')
+  cl_train = paste(readRDS(fullname))
+  cl_test = setdiff(rownames(gene_sub_full),cl_train)
+  gene_sub_full_train = gene_sub_full[cl_train,]
+  gene_sub_full_test = gene_sub_full[cl_test,]
+  outcome <- data.frame(Gene = colnames(gene_sub))
+  outcome$keep <- apply(gene_sub_full_train[,-ncol(gene_sub_full_train)], 2, get.t, gene_sub_full_train$EFFECT)
+  subset_id = outcome %>% filter(keep==TRUE) %>% select(Gene)
+  subset_id = unname(t(subset_id[,1]))
+  gene_train_reduced = cbind(gene_sub_full_train[,subset_id],gene_sub_full_train['EFFECT'])
+  gene_test_reduced = cbind(gene_sub_full_test[,subset_id],gene_sub_full_test['EFFECT'])
+  gene_train_reduced$EFFECT = as.factor(gene_train_reduced$EFFECT)
+  gene_test_reduced$EFFECT = as.factor(gene_test_reduced$EFFECT)
+  myforest = randomForest(EFFECT~.,data=gene_train_reduced,mtry=round(sqrt(ncol(gene_train_reduced)-1)),ntree=100)
+  test_pred = predict(myforest,gene_test_reduced)
+  test_pred = as.data.frame(test_pred)
+  comp = cbind(test_pred,gene_test_reduced['EFFECT'])
+  fname = paste(c("GeneExp_RF_",code,'.rds'),collapse='')
+  fullname = paste(c(outdir,fname),collapse='')
+  saveRDS(comp,fullname)
+}
+```
+
+
+```{r}
+glimpse = readRDS('/home/wangmk/UM/Research/BDSI/Data_Results/RF/GeneExp_RF_1062.rds')
+sum(glimpse$test_pred==glimpse$EFFECT)/nrow(glimpse)
+```
+
+```{r}
+gdsc_sub <- subset(gdsc, DRUG_ID_lib == '1006')[,c("CL","EFFECT")]
+gene_sub <- gene[as.character(gdsc_sub$CL),]
+gene_sub_full <- cbind(gene_sub, gdsc_sub['EFFECT'])
+filename = paste(c('train_','1006','.rds'),collapse='')
+fullname = paste(c(traindirect,filename),collapse='')
+cl_train = paste(readRDS(fullname))
+cl_test = setdiff(rownames(gene_sub_full),cl_subset)
+gene_sub_full_train = gene_sub_full[cl_train,]
+gene_sub_full_test = gene_sub_full[cl_test,]
+```
+
+```{r}
+outcome <- data.frame(Gene = colnames(gene_sub))
+outcome$keep <- apply(gene_sub_full_train[,-ncol(gene_sub_full_train)], 2, get.t, gene_sub_full_train$EFFECT)
+```
+
+```{r}
+subset_id = outcome %>% filter(keep==TRUE) %>% select(Gene)
+subset_id = unname(t(subset_id[,1]))
+```
+
+```{r}
+gene_train_reduced = cbind(gene_sub_full_train[,subset_id],gene_sub_full_train['EFFECT'])
+gene_test_reduced = cbind(gene_sub_full_test[,subset_id],gene_sub_full_test['EFFECT'])
+```
+
+```{r}
+colnames(gene_train_reduced)[ncol(gene_train_reduced)] = 'EFFECT'
+gene_train_reduced = as.data.frame(gene_train_reduced)
+gene_train_reduced$EFFECT = as.factor(gene_train_reduced$EFFECT)
+colnames(gene_test_reduced)[ncol(gene_test_reduced)] = 'EFFECT'
+gene_test_reduced = as.data.frame(gene_test_reduced)
+gene_test_reduced$EFFECT = as.factor(gene_test_reduced$EFFECT)
+```
+
+```{r}
+myforest = randomForest(EFFECT~.,data=gene_train_reduced,mtry=round(sqrt(ncol(gene_train_reduced)-1)),ntree=100)
+```
+
+```{r}
+test_pred = predict(myforest,gene_test_reduced)
+```
+
+```{r}
+test_pred = as.data.frame(test_pred)
+```
+
+```{r}
+comp = cbind(test_pred,gene_test_reduced['EFFECT'])
+```
+
+```{r}
+dir = '/home/wangmk/UM/Research/BDSI/Data_Results/RF/'
+fname = paste(c("GeneExp_RF_",'1006','.rds'),collapse='')
+fullname = paste(c(dir,fname),collapse='')
+saveRDS(comp,fullname)
+```
