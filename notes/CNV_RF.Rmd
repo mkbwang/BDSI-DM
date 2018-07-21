@@ -6,8 +6,6 @@ output: html_document
 ```{r}
 library(randomForest)
 library(dplyr)
-library(ggplot2)
-library(reshape2)
 ```
 
 ```{r}
@@ -97,11 +95,16 @@ n_features = c(5,10,20,30,50,100,200,500,1000,2000)
 ```{r}
 code = "1062"
 
+sigdir = '/home/wangmk/UM/Research/BDSI/Data_Results/Significant_CNV/'
+filename = paste(c('significant_',code,'.rds'),collapse='')
+fullname = paste(c(sigdir,filename),collapse='')
+subset_id = readRDS(fullname)
+
 
 accuracy = rep(0,10)
 names(accuracy) = c('5','10','20','30','50','100','200','500','1000','2000')
 gdsc_sub <- subset(gdsc, DRUG_ID_lib == code)[,c("CL","EFFECT")]
-cnv_sub <- cnv[as.character(gdsc_sub$CL),]
+cnv_sub <- cnv[as.character(gdsc_sub$CL),subset_id]
 
 filename = paste(c('train_',code,'.rds'),collapse='')
 fullname = paste(c(traindirect,filename),collapse='')
@@ -115,21 +118,7 @@ gdsc_sub_train = tbl_df(gdsc_sub) %>% filter(CL %in% cl_train)
 gdsc_sub_test = tbl_df(gdsc_sub) %>% filter(CL %in% cl_test)
 ```
 
-```{r}
-outcome <- data.frame(Gene = colnames(cnv_sub))
-```
 
-
-```{r}
-outcome$T <- apply(cnv_sub_train, 2, get.t.1, gdsc_sub_train$EFFECT)
-subset_id = outcome %>% filter(T==TRUE) %>% select(Gene)
-subset_id = unname(t(subset_id[,1]))
-```
-
-```{r}
-cnv_sub_train = cnv_sub_train[,subset_id]
-cnv_sub_test = cnv_sub_test[,subset_id]
-```
 
 ```{r}
 outcome <- data.frame(Gene = colnames(cnv_sub_train))
@@ -184,8 +173,13 @@ cnv_sub_test_reduced$EFFECT = as.factor(cnv_sub_test_reduced$EFFECT)
 ```
 
 ```{r}
-myforest = randomForest(EFFECT~.,data=cnv_sub_train_reduced,mtry=round(sqrt(10)),ntree=500)
+RandomForest_1062_CNV = randomForest(EFFECT~.,data=cnv_sub_train_reduced,mtry=round(sqrt(10)),ntree=500,importance=TRUE)
 ```
+
+```{r}
+varImpPlot(RandomForest_1062_CNV)
+```
+
 
 ```{r}
 test_pred = predict(myforest,cnv_sub_test_reduced)

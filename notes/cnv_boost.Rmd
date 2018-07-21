@@ -229,7 +229,7 @@ which.max(accuracy)
 
 
 ```{r}
-myboost = ada(EFFECT~.,data=cnv_sub_train_reduced,iter=20)
+AdaBoost_1062_CNV = ada(EFFECT~.,data=cnv_sub_train_reduced,iter=20)
 ```
 
 ```{r}

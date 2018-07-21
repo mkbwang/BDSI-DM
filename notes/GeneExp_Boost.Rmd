@@ -94,13 +94,18 @@ n_features = c(5,10,20,30,50,100,200,500,1000,2000)
 
 
 ```{r}
-code = "1062"
+code = "1008"
+
+sigdir = '/home/wangmk/UM/Research/BDSI/Data_Results/Significant_GeneExp/'
+filename = paste(c('significant_',code,'.rds'),collapse='')
+fullname = paste(c(sigdir,filename),collapse='')
+subset_id = readRDS(fullname)
 
 
 accuracy = rep(0,10)
 names(accuracy) = c('5','10','20','30','50','100','200','500','1000','2000')
 gdsc_sub <- subset(gdsc, DRUG_ID_lib == code)[,c("CL","EFFECT")]
-gene_sub <- gene[as.character(gdsc_sub$CL),]
+gene_sub <- gene[as.character(gdsc_sub$CL),subset_id]
 
 filename = paste(c('train_',code,'.rds'),collapse='')
 fullname = paste(c(traindirect,filename),collapse='')
@@ -132,15 +137,15 @@ gdsc_sub_test = tbl_df(gdsc_sub) %>% filter(CL %in% cl_test)
 ```
 
 ```{r}
-sigdir = '/home/wangmk/UM/Research/BDSI/Data_Results/Significant_GeneExp/'
-filename = paste(c('significant_',code,'.rds'),collapse='')
-fullname = paste(c(sigdir,filename),collapse='')
-subset_id = readRDS(fullname)
+#sigdir = '/home/wangmk/UM/Research/BDSI/Data_Results/Significant_GeneExp/'
+#filename = paste(c('significant_',code,'.rds'),collapse='')
+#fullname = paste(c(sigdir,filename),collapse='')
+#subset_id = readRDS(fullname)
 ```
 
 ```{r}
-gene_sub_train = gene_sub_train[,subset_id]
-gene_sub_test = gene_sub_test[,subset_id]
+#gene_sub_train = gene_sub_train[,subset_id]
+#gene_sub_test = gene_sub_test[,subset_id]
 ```
 
 ```{r}
@@ -183,7 +188,7 @@ which.max(accuracy)
 
 ```{r}
 outcome$T <- apply(gene_sub_train, 2, get.t.2, gdsc_sub_train$EFFECT)
-subset_id = outcome %>% top_n(1000,T) %>% select(Gene)
+subset_id = outcome %>% top_n(50,T) %>% select(Gene)
 subset_id = as.character(unname(t(subset_id[,1])))
 ```
 
@@ -204,7 +209,7 @@ names(accuracy) = c('5','10','15','20','25','30')
 for (j in 1:10){
   print(j)
   set.seed(j)
-  train_id = sample(1:nrow(gdsc_sub_train),0.9*nrow(gdsc_sub_train))
+  train_id = sample(1:nrow(gene_sub_train_reduced),0.9*nrow(gene_sub_train_reduced))
   for (n_iter in n_iters){
     print(n_iter)
     myboost = ada(EFFECT~.,data=gene_sub_train_reduced[train_id,],iter=n_iter)
@@ -221,7 +226,7 @@ which.max(accuracy)
 
 
 ```{r}
-myboost = ada(EFFECT~.,data=gene_sub_train_reduced,iter=50)
+myboost = ada(EFFECT~.,data=gene_sub_train_reduced,iter=5)
 ```
 
 ```{r}
